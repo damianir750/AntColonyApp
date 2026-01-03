@@ -109,6 +109,12 @@ class AntColonyApp:
                     colonies = data.get("colonies", [])
                     settings.update(data.get("settings", {}))
                     
+                    # Fix for update_url: overwrite if it's the old incorrect one
+                    old_url = "https://raw.githubusercontent.com/damianir750/AntColonyApp/main/app%20formiche.py"
+                    new_url = "https://raw.githubusercontent.com/damianir750/AntColonyApp/refs/heads/main/app%20formiche.py"
+                    if settings.get("update_url") == old_url:
+                        settings["update_url"] = new_url
+                    
                     # Logica di migrazione per i vecchi formati di dati
                     for colony in colonies:
                         # Migrazione del campo population in history
