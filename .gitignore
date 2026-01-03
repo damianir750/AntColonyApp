@@ -1,0 +1,18 @@
+# User Data (Personal)
+colonies.json
+backups/
+colony_images/
+
+# System / Build
+__pycache__/
+build/
+dist/
+*.spec
+
+# Temporary Updater Files
+app_update.new
+update.bat
+
+# IDE Settings
+.vscode/
+.idea/
