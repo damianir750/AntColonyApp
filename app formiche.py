@@ -38,7 +38,7 @@ CARD_BG_COLOR = "#212e4d"   # Blu più chiaro per i pannelli
 TEXT_COLOR = "#ecf0f1"
 ACCENT_COLOR = "#3498db"
 GRAPH_COLOR = "#2ecc71" # Verde per il grafico
-CURRENT_VERSION = "1.0.2"
+CURRENT_VERSION = "1.0.3"
 
 
 
@@ -91,7 +91,7 @@ class AntColonyApp:
         settings = {
             "notifications": True,
             "notifications_email": False,
-            "update_url": "https://raw.githubusercontent.com/damianir750/AntColonyApp/main/app%20formiche.py", # URL per l'aggiornamento
+            "update_url": "https://raw.githubusercontent.com/damianir750/AntColonyApp/refs/heads/main/app%20formiche.py", # URL per l'aggiornamento
 
             "notifications_desktop": True,
             "email_sender": "",
