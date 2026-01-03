@@ -41,6 +41,8 @@ GRAPH_COLOR = "#2ecc71" # Verde per il grafico
 CURRENT_VERSION = "1.0.3"
 
 
+DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/damianir750/AntColonyApp/refs/heads/main/app%20formiche.py"
+
 
 class AntColonyApp:
     def __init__(self, root):
@@ -91,7 +93,7 @@ class AntColonyApp:
         settings = {
             "notifications": True,
             "notifications_email": False,
-            "update_url": "https://raw.githubusercontent.com/damianir750/AntColonyApp/refs/heads/main/app%20formiche.py", # URL per l'aggiornamento
+            "update_url": DEFAULT_UPDATE_URL, # URL per l'aggiornamento
 
             "notifications_desktop": True,
             "email_sender": "",
@@ -111,9 +113,8 @@ class AntColonyApp:
                     
                     # Fix for update_url: overwrite if it's the old incorrect one
                     old_url = "https://raw.githubusercontent.com/damianir750/AntColonyApp/main/app%20formiche.py"
-                    new_url = "https://raw.githubusercontent.com/damianir750/AntColonyApp/refs/heads/main/app%20formiche.py"
                     if settings.get("update_url") == old_url:
-                        settings["update_url"] = new_url
+                        settings["update_url"] = DEFAULT_UPDATE_URL
                     
                     # Logica di migrazione per i vecchi formati di dati
                     for colony in colonies:
