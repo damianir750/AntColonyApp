@@ -50,7 +50,7 @@ CARD_BG_COLOR = "#212e4d"   # Blu più chiaro per i pannelli
 TEXT_COLOR = "#ecf0f1"
 ACCENT_COLOR = "#3498db"
 GRAPH_COLOR = "#2ecc71" # Verde per il grafico
-CURRENT_VERSION = "1.2.3"
+CURRENT_VERSION = "1.2.4"
 
 # --- Database Specie ---
 SPECIES_DATA = {
@@ -274,7 +274,7 @@ class AntColonyApp:
                            arrowcolor=TEXT_COLOR)
                            
         self.style.map("Vertical.TScrollbar",
-            background=[("active", ACCENT_COLOR), ("dsabled", DEFAULT_BG_COLOR)]
+            background=[("active", ACCENT_COLOR), ("disabled", DEFAULT_BG_COLOR)]
         )
         
         self.style.configure("Horizontal.TScrollbar",
@@ -287,7 +287,7 @@ class AntColonyApp:
                            arrowcolor=TEXT_COLOR)
 
         self.style.map("Horizontal.TScrollbar",
-            background=[("active", ACCENT_COLOR), ("dsabled", DEFAULT_BG_COLOR)]
+            background=[("active", ACCENT_COLOR), ("disabled", DEFAULT_BG_COLOR)]
         )
 
         self.style.configure("Modern.TButton",
