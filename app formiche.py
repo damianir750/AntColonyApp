@@ -50,7 +50,7 @@ CARD_BG_COLOR = "#212e4d"   # Blu più chiaro per i pannelli
 TEXT_COLOR = "#ecf0f1"
 ACCENT_COLOR = "#3498db"
 GRAPH_COLOR = "#2ecc71" # Verde per il grafico
-CURRENT_VERSION = "1.2.9"
+CURRENT_VERSION = "1.3.0"
 
 # --- Database Specie ---
 SPECIES_DATA = {
@@ -1026,7 +1026,8 @@ class AntColonyApp:
                 font=("Segoe UI", 12),
                 fg=TEXT_COLOR, bg=CARD_BG_COLOR).pack(anchor="w", pady=(0, 5))
 
-        date_entry = DateEntry(content, font=("Segoe UI", 12), date_pattern='yyyy-mm-dd')
+        date_entry = DateEntry(content, font=("Segoe UI", 12), date_pattern='yyyy-mm-dd',
+                               background=ACCENT_COLOR, foreground='white', headersbackground=CARD_BG_COLOR, headersforeground=TEXT_COLOR)
         date_entry.pack(fill="x", pady=(0, 10))
         
         tk.Label(content, text="Popolazione iniziale:",
@@ -1036,6 +1037,7 @@ class AntColonyApp:
         pop_var = tk.StringVar(value="0")
         pop_entry = tk.Entry(content, textvariable=pop_var,
                              font=("Segoe UI", 12),
+                             bg=DEFAULT_BG_COLOR, fg=TEXT_COLOR, insertbackground=TEXT_COLOR,
                              width=10)
         pop_entry.pack(anchor="w", pady=(0, 20))
 
@@ -1194,6 +1196,7 @@ class AntColonyApp:
         name_var = tk.StringVar(value=self.current_colony["name"])
         name_entry = tk.Entry(content, textvariable=name_var,
                              font=("Segoe UI", 12),
+                             bg=DEFAULT_BG_COLOR, fg=TEXT_COLOR, insertbackground=TEXT_COLOR,
                              width=30)
         name_entry.pack(fill="x", pady=(0, 5))
         name_entry.focus()
@@ -1271,7 +1274,8 @@ class AntColonyApp:
                 font=("Segoe UI", 12),
                 fg=TEXT_COLOR, bg=CARD_BG_COLOR).pack(anchor="w", pady=(0, 5))
 
-        date_entry = DateEntry(content, font=("Segoe UI", 12), date_pattern='yyyy-mm-dd')
+        date_entry = DateEntry(content, font=("Segoe UI", 12), date_pattern='yyyy-mm-dd',
+                               background=ACCENT_COLOR, foreground='white', headersbackground=CARD_BG_COLOR, headersforeground=TEXT_COLOR)
         date_entry.set_date(self.current_colony["collection_date"])
         date_entry.pack(fill="x", pady=(0, 20))
 
@@ -1819,14 +1823,14 @@ class AntColonyApp:
         pop_frame = tk.Frame(entry_frame, bg=CARD_BG_COLOR)
         pop_frame.pack(fill="x", padx=10, pady=2)
         tk.Label(pop_frame, text="Popolazione:", fg="#bdc3c7", bg=CARD_BG_COLOR).pack(side="left")
-        self.pop_entry = tk.Entry(pop_frame, width=10)
+        self.pop_entry = tk.Entry(pop_frame, width=10, bg=DEFAULT_BG_COLOR, fg=TEXT_COLOR, insertbackground=TEXT_COLOR)
         self.pop_entry.pack(side="left", padx=5)
 
         # Mortalità
         mortality_frame = tk.Frame(entry_frame, bg=CARD_BG_COLOR)
         mortality_frame.pack(fill="x", padx=10, pady=2)
         tk.Label(mortality_frame, text="Mortalità:", fg="#bdc3c7", bg=CARD_BG_COLOR).pack(side="left")
-        self.mortality_entry = tk.Entry(mortality_frame, width=10)
+        self.mortality_entry = tk.Entry(mortality_frame, width=10, bg=DEFAULT_BG_COLOR, fg=TEXT_COLOR, insertbackground=TEXT_COLOR)
         self.mortality_entry.pack(side="left", padx=5)
         
         # Uova/Larve
