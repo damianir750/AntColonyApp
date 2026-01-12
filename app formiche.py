@@ -14,6 +14,7 @@ import ssl
 import logging
 import urllib.request
 import re
+import ctypes
 
 # Configure logging
 logging.basicConfig(
@@ -50,7 +51,7 @@ CARD_BG_COLOR = "#212e4d"   # Blu più chiaro per i pannelli
 TEXT_COLOR = "#ecf0f1"
 ACCENT_COLOR = "#3498db"
 GRAPH_COLOR = "#2ecc71" # Verde per il grafico
-CURRENT_VERSION = "1.3.0"
+CURRENT_VERSION = "1.3.1"
 
 # --- Database Specie ---
 SPECIES_DATA = {
@@ -3174,6 +3175,20 @@ class AntColonyApp:
 def main():
     if not os.path.exists(IMAGE_DIR):
         os.makedirs(IMAGE_DIR)
+
+    # --- Single Instance Check ---
+    # Usa un Mutex globale per Windows per impedire avvii multipli
+    mutex_name = "Global\\AntColonyApp_Mutex_Lock"
+    kernel32 = ctypes.windll.kernel32
+    mutex = kernel32.CreateMutexW(None, True, mutex_name)
+    last_error = kernel32.GetLastError()
+    
+    # ERROR_ALREADY_EXISTS = 183
+    if last_error == 183:
+        # L'app è già avviata
+        # Nota: Idealmente qui si potrebbe portare in primo piano l'altra finestra, 
+        # ma per ora basta impedire il doppio avvio.
+        return
 
     root = tk.Tk()
 
