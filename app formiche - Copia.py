@@ -50,7 +50,7 @@ CARD_BG_COLOR = "#212e4d"   # Blu più chiaro per i pannelli
 TEXT_COLOR = "#ecf0f1"
 ACCENT_COLOR = "#3498db"
 GRAPH_COLOR = "#2ecc71" # Verde per il grafico
-CURRENT_VERSION = "1.2.6"
+CURRENT_VERSION = "1.2.8"
 
 # --- Database Specie ---
 SPECIES_DATA = {
@@ -322,6 +322,13 @@ class AntColonyApp:
                            foreground=TEXT_COLOR,
                            background="#27ae60",
                            borderwidth=0)
+        
+        # Configurazione Listbox dei Combobox (Popdown globali)
+        self.root.option_add("*TCombobox*Listbox.background", CARD_BG_COLOR)
+        self.root.option_add("*TCombobox*Listbox.foreground", TEXT_COLOR)
+        self.root.option_add("*TCombobox*Listbox.selectBackground", ACCENT_COLOR)
+        self.root.option_add("*TCombobox*Listbox.selectForeground", "white")
+        self.root.option_add("*TCombobox*Listbox.font", ("Segoe UI", 10))
         
         self.style.configure("Warning.TButton",
                            font=("Segoe UI", 10, "bold"),
@@ -2333,16 +2340,22 @@ class AntColonyApp:
             import re
             content_str = remote_code.decode('utf-8', errors='ignore')
             match = re.search(r'CURRENT_VERSION\s*=\s*"([^"]+)"', content_str)
-            remote_version = match.group(1) if match else "Unknown"
+            remote_version = match.group(1) if match else "0.0.0"
             
-            if remote_version == CURRENT_VERSION:
-                if not silent:
-                    messagebox.showinfo("Aggiornamento", "Nessun aggiornamento disponibile. Hai l'ultima versione.")
-                return
+            def parse_version(v):
+                return tuple(map(int, (v.split("."))))
 
-            msg = f"È stata trovata una nuova versione ({remote_version}). Vuoi aggiornare ora?\n\nL'applicazione verrà riavviata."
-            if messagebox.askyesno("Aggiornamento Disponibile", msg):
-                self.perform_update(remote_code)
+            try:
+                if parse_version(remote_version) > parse_version(CURRENT_VERSION):
+                    msg = f"È stata trovata una nuova versione ({remote_version}). Vuoi aggiornare ora?\n\nL'applicazione verrà riavviata."
+                    if messagebox.askyesno("Aggiornamento Disponibile", msg):
+                        self.perform_update(remote_code)
+                elif not silent:
+                     messagebox.showinfo("Aggiornamento", "Nessun aggiornamento disponibile. Hai l'ultima versione.")
+            except ValueError:
+                # Fallback per versioni non standard
+                if remote_version != CURRENT_VERSION:
+                     pass
                 
         except Exception as e:
             if not silent:

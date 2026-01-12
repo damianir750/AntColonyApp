@@ -50,7 +50,7 @@ CARD_BG_COLOR = "#212e4d"   # Blu più chiaro per i pannelli
 TEXT_COLOR = "#ecf0f1"
 ACCENT_COLOR = "#3498db"
 GRAPH_COLOR = "#2ecc71" # Verde per il grafico
-CURRENT_VERSION = "1.2.8"
+CURRENT_VERSION = "1.2.9"
 
 # --- Database Specie ---
 SPECIES_DATA = {
@@ -3192,11 +3192,11 @@ def main():
     # Modifiche per la gestione dell'icona di sistema
     if PYSTRAY_AVAILABLE:
         try:
-            image_path = "ant_icon.png"
+            image_path = os.path.join(SCRIPT_DIR, "ant_icon.png")
             if os.path.exists(image_path):
                 image = Image.open(image_path)
             else:
-                print("Avviso: 'ant_icon.png' non trovata. Verrà usata un'icona segnaposto.")
+                logger.warning("Avviso: 'ant_icon.png' non trovata. Verrà usata un'icona segnaposto.")
                 image = create_placeholder_image()
             
             def show_window(icon, item):
