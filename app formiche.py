@@ -12,6 +12,8 @@ import shutil
 import smtplib
 import ssl
 import logging
+import urllib.request
+import re
 
 # Configure logging
 logging.basicConfig(
@@ -48,7 +50,7 @@ CARD_BG_COLOR = "#212e4d"   # Blu più chiaro per i pannelli
 TEXT_COLOR = "#ecf0f1"
 ACCENT_COLOR = "#3498db"
 GRAPH_COLOR = "#2ecc71" # Verde per il grafico
-CURRENT_VERSION = "1.2.0"
+CURRENT_VERSION = "1.2.1"
 
 # --- Database Specie ---
 SPECIES_DATA = {
@@ -122,9 +124,13 @@ class AntColonyApp:
             self.create_backup(silent=True)
 
         self.current_colony = None
+        self.current_filtered_colonies = None
         self.current_calendar_date = datetime.now()
         self.last_size = (0, 0)
         self.last_colony_grid_width = 0
+        
+        # Auto-check updates
+        threading.Thread(target=self.check_for_updates, kwargs={'silent': True}, daemon=True).start()
 
         # Gestione dell'immagine di sfondo
         self._current_background_label = None
@@ -312,6 +318,59 @@ class AntColonyApp:
 
         # -- Vista Griglia (Canvas + Scrollbar) --
         self.grid_container = tk.Frame(self.content_container, bg=DEFAULT_BG_COLOR)
+        
+        # --- barra dei Filtri ---
+        self.filter_frame = tk.Frame(self.grid_container, bg=CARD_BG_COLOR, padx=10, pady=10)
+        self.filter_frame.pack(side="top", fill="x", pady=(0, 10))
+        
+        # Row 1: Search & Species
+        f_row1 = tk.Frame(self.filter_frame, bg=CARD_BG_COLOR)
+        f_row1.pack(fill="x", pady=2)
+        
+        tk.Label(f_row1, text="🔍 Cerca:", font=("Segoe UI", 10), bg=CARD_BG_COLOR, fg=TEXT_COLOR).pack(side="left")
+        self.filter_name_var = tk.StringVar()
+        self.filter_name_var.trace("w", lambda name, index, mode: self.apply_filters())
+        
+        e_search = tk.Entry(f_row1, textvariable=self.filter_name_var, width=20, font=("Segoe UI", 10),
+                           bg=DEFAULT_BG_COLOR, fg=TEXT_COLOR, relief="flat", insertbackground=TEXT_COLOR)
+        e_search.pack(side="left", padx=5, ipady=3)
+        
+        tk.Label(f_row1, text="🐜 Specie:", font=("Segoe UI", 10), bg=CARD_BG_COLOR, fg=TEXT_COLOR).pack(side="left", padx=(15, 5))
+        self.filter_species_var = tk.StringVar()
+        species_values = ["Tutte"] + sorted(list(self.species_db.keys()))
+        f_species = ttk.Combobox(f_row1, textvariable=self.filter_species_var, values=species_values, state="readonly", width=20)
+        f_species.current(0)
+        f_species.pack(side="left")
+        f_species.bind("<<ComboboxSelected>>", lambda e: self.apply_filters())
+        
+        # Row 2: Pop Range & Reset
+        f_row2 = tk.Frame(self.filter_frame, bg=CARD_BG_COLOR)
+        f_row2.pack(fill="x", pady=2)
+        
+        tk.Label(f_row2, text="👥 Popolazione:", font=("Segoe UI", 10), bg=CARD_BG_COLOR, fg=TEXT_COLOR).pack(side="left")
+        self.filter_pop_min_var = tk.StringVar()
+        self.filter_pop_max_var = tk.StringVar()
+        
+        # Helper to trigger filter on enter or focus out
+        def on_pop_change(e): self.apply_filters()
+        
+        e_min = tk.Entry(f_row2, textvariable=self.filter_pop_min_var, width=8, font=("Segoe UI", 10),
+                        bg=DEFAULT_BG_COLOR, fg=TEXT_COLOR, relief="flat", insertbackground=TEXT_COLOR)
+        e_min.pack(side="left", padx=5, ipady=3)
+        e_min.bind("<Return>", on_pop_change)
+        e_min.bind("<FocusOut>", on_pop_change)
+        
+        tk.Label(f_row2, text="-", bg=CARD_BG_COLOR, fg=TEXT_COLOR).pack(side="left")
+        
+        e_max = tk.Entry(f_row2, textvariable=self.filter_pop_max_var, width=8, font=("Segoe UI", 10),
+                        bg=DEFAULT_BG_COLOR, fg=TEXT_COLOR, relief="flat", insertbackground=TEXT_COLOR)
+        e_max.pack(side="left", padx=5, ipady=3)
+        e_max.bind("<Return>", on_pop_change)
+        e_max.bind("<FocusOut>", on_pop_change)
+
+        ttk.Button(f_row2, text="❌ Reset", style="Modern.TButton", command=self.reset_filters).pack(side="left", padx=15)
+        ttk.Button(f_row2, text="✅ Applica", style="Success.TButton", command=self.apply_filters).pack(side="left", padx=5)
+
         self.canvas = tk.Canvas(self.grid_container, bg=DEFAULT_BG_COLOR, highlightthickness=0)
         self.scrollbar = ttk.Scrollbar(self.grid_container, orient="vertical", command=self.canvas.yview)
         
@@ -487,15 +546,67 @@ class AntColonyApp:
                   style="Success.TButton",
                   command=self.create_colony).pack(side="right", padx=5)
 
-    def display_colonies(self):
+    def reset_filters(self):
+        self.filter_name_var.set("")
+        self.filter_species_var.set("Tutte")
+        self.filter_pop_min_var.set("")
+        self.filter_pop_max_var.set("")
+        self.current_filtered_colonies = None
+        self.display_colonies()
+
+    def apply_filters(self, event=None):
+        name_filter = self.filter_name_var.get().lower().strip()
+        species_filter = self.filter_species_var.get()
+        pop_min = self.filter_pop_min_var.get().strip()
+        pop_max = self.filter_pop_max_var.get().strip()
+        
+        filtered = []
+        for colony in self.colonies:
+            # 1. Name Filter
+            if name_filter and name_filter not in colony["name"].lower():
+                continue
+            
+            # 2. Species Filter
+            if species_filter != "Tutte":
+                c_species = colony.get("species", "")
+                if c_species != species_filter:
+                    continue
+            
+            # 3. Population Filter
+            current_pop = 0
+            if colony.get("history"):
+                current_pop = colony["history"][-1]["population"]
+            
+            try:
+                if pop_min and current_pop < int(pop_min):
+                    continue
+            except ValueError:
+                pass # Ignore invalid input
+                
+            try:
+                if pop_max and current_pop > int(pop_max):
+                    continue
+            except ValueError:
+                pass
+
+            filtered.append(colony)
+            
+        self.current_filtered_colonies = filtered
+        self.display_colonies(filtered)
+
+    def display_colonies(self, colonies_list=None):
         if getattr(self, '_is_drawing', False):
             return
             
         self._is_drawing = True
         try:
+            # Determine source list
+            if colonies_list is None:
+                colonies_list = self.current_filtered_colonies if self.current_filtered_colonies is not None else self.colonies
+            
             # Check for smart reuse
             children = self.canvas.winfo_children()
-            sorted_colonies = sorted(self.colonies, key=lambda x: x['name'].lower())
+            sorted_colonies = sorted(colonies_list, key=lambda x: x['name'].lower())
             
             # Draw/Update Background
             bg_drawn = False
@@ -2967,6 +3078,27 @@ class AntColonyApp:
             logger.error("Errore di autenticazione SMTP. Controlla email e password nelle impostazioni.")
         except Exception as e:
             logger.error(f"Errore durante l'invio della notifica email per la colonia {colony_name}: {e}")
+
+    def check_for_updates(self, silent=False):
+        try:
+            url = self.settings.get("update_url", DEFAULT_UPDATE_URL)
+            # Use a timeout to prevent hanging
+            with urllib.request.urlopen(url, timeout=5) as response:
+                content = response.read().decode('utf-8')
+            
+            # Simple regex to find CURRENT_VERSION = "x.y.z"
+            match = re.search(r'CURRENT_VERSION\s*=\s*"([^"]+)"', content)
+            if match:
+                remote_version = match.group(1)
+                if remote_version != CURRENT_VERSION:
+                    msg = f"Nuova versione {remote_version} disponibile!"
+                    self.root.after(0, lambda: messagebox.showinfo("Aggiornamento", msg))
+                elif not silent:
+                    self.root.after(0, lambda: messagebox.showinfo("Aggiornamento", "Nessun aggiornamento disponibile."))
+        except Exception as e:
+            logger.error(f"Errore controllo aggiornamenti: {e}")
+            if not silent:
+                 self.root.after(0, lambda: messagebox.showerror("Errore", f"Impossibile controllare aggiornamenti: {e}"))
 
     # Nuovo metodo per la chiusura definitiva
     def close_app(self):
