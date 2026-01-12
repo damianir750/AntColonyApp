@@ -9,17 +9,24 @@ from tkcalendar import DateEntry
 import threading
 import time
 import shutil
-import math
 import smtplib
 import ssl
-from io import BytesIO
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 try:
     from plyer import notification
     NOTIFICATIONS_AVAILABLE = True
 except ImportError:
     NOTIFICATIONS_AVAILABLE = False
-    print("Nota: Per le notifiche installa: pip install plyer")
+    logger.warning("Per le notifiche installa: pip install plyer")
 
 try:
     from pystray import MenuItem as item, Menu
@@ -27,18 +34,21 @@ try:
     PYSTRAY_AVAILABLE = True
 except ImportError:
     PYSTRAY_AVAILABLE = False
-    print("Nota: Per la riduzione a icona nella barra di sistema installa: pip install pystray")
+    logger.warning("Per la riduzione a icona nella barra di sistema installa: pip install pystray")
 
 # --- Costanti ---
-DATA_FILE = "colonies.json"
-IMAGE_DIR = "colony_images"
-BACKUP_DIR = "backups"
+# Get the directory where this script is located
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+DATA_FILE = os.path.join(SCRIPT_DIR, "colonies.json")
+IMAGE_DIR = os.path.join(SCRIPT_DIR, "colony_images")
+BACKUP_DIR = os.path.join(SCRIPT_DIR, "backups")
 DEFAULT_BG_COLOR = "#1a233b"  # Blu scuro
 CARD_BG_COLOR = "#212e4d"   # Blu più chiaro per i pannelli
 TEXT_COLOR = "#ecf0f1"
 ACCENT_COLOR = "#3498db"
 GRAPH_COLOR = "#2ecc71" # Verde per il grafico
-CURRENT_VERSION = "1.0.3"
+CURRENT_VERSION = "1.1.0"
 
 
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/damianir750/AntColonyApp/refs/heads/main/app%20formiche.py"
@@ -60,7 +70,8 @@ class AntColonyApp:
         self.colonies = []
         self.settings = {}
         self.colonies, self.settings = self.load_data()
-        self.create_backup()
+        if os.path.exists(DATA_FILE):
+            self.create_backup(silent=True)
 
         self.current_colony = None
         self.current_calendar_date = datetime.now()
@@ -228,15 +239,7 @@ class AntColonyApp:
         self.style.configure("TNotebook.Tab", background=CARD_BG_COLOR, foreground=TEXT_COLOR)
         self.style.map("TNotebook.Tab", background=[("selected", ACCENT_COLOR)], foreground=[("selected", "#ffffff")])
 
-        # Stile per la Checkbox (Toggle.TButton)
-        self.style.configure("Toggle.TCheckbutton", 
-                             foreground=TEXT_COLOR, background=CARD_BG_COLOR,
-                             indicatorcolor=CARD_BG_COLOR,
-                             indicatorbackground="#7f8c8d",
-                             indicatormargin=5,
-                             indicatordiameter=15)
-        self.style.map("Toggle.TCheckbutton",
-                       indicatorcolor=[('selected', ACCENT_COLOR)])
+
         
     def create_main_frame(self):
         self.clear_frame()
@@ -275,23 +278,71 @@ class AntColonyApp:
 
         self.canvas.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="right", fill="y")
+        
+        # Bind scroll events to keep background fixed
+        self.scrollbar.bind("<B1-Motion>", lambda e: self._update_bg_position())
 
         self.display_colonies()
-        # self.update_background_image() # Moved inside display_colonies/layout
         
     def on_canvas_configure(self, event):
-        # ricalcola il layout al ridimensionamento
-        if hasattr(self, 'last_canvas_width'):
-             if abs(self.last_canvas_width - event.width) > 5: # Small threshold
-                 self.last_canvas_width = event.width
-                 self.display_colonies()
-        else:
-             self.last_canvas_width = event.width
-             self.display_colonies()
+        # Prevent "jitter"/stuttering during window move:
+        # Only react if dimensions actually changed.
+        
+        current_width = event.width
+        current_height = event.height
+        
+        if not hasattr(self, 'last_canvas_width'):
+            self.last_canvas_width = current_width
+            self.last_canvas_height = current_height
+            return
 
+        # Check if size changed (ignore position changes)
+        if (abs(self.last_canvas_width - current_width) < 2 and 
+            abs(self.last_canvas_height - current_height) < 2):
+            return
+
+        # Debounce: Cancel any pending redraw
+        if hasattr(self, '_resize_after_id') and self._resize_after_id:
+            self.root.after_cancel(self._resize_after_id)
+        
+        # Schedule redraw
+        self._resize_after_id = self.root.after(100, self._do_resize_redraw, current_width, current_height)
+
+
+    def _do_resize_redraw(self, new_width, new_height):
+        """Perform the actual resize redraw after debounce delay."""
+        self._resize_after_id = None
+        self.last_canvas_width = new_width
+        self.last_canvas_height = new_height
+        self._update_bg_position() # Update bg on resize
+        self.display_colonies()
 
     def _on_mousewheel(self, event):
         self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        self._update_bg_position()
+    
+    def _update_bg_position(self):
+        """Keep background image fixed in viewport when scrolling."""
+        if not hasattr(self, 'canvas') or not self.canvas.winfo_exists():
+            return
+        bg_items = self.canvas.find_withtag("bg")
+        if bg_items:
+            canvas_width = self.canvas.winfo_width()
+            canvas_height = self.canvas.winfo_height()
+            # Get scroll offset
+            y_scroll = self.canvas.yview()[0]
+            scroll_region = self.canvas.cget('scrollregion')
+            if scroll_region:
+                try:
+                    _, _, _, total_h = map(float, scroll_region.split())
+                    y_offset = y_scroll * total_h
+                except:
+                    y_offset = 0
+            else:
+                y_offset = 0
+            x_center = canvas_width // 2
+            y_center = (canvas_height // 2) + y_offset
+            self.canvas.coords(bg_items[0], x_center, y_center)
 
     def _create_main_header(self, parent_frame):
         header = tk.Frame(parent_frame, bg=CARD_BG_COLOR, height=80)
@@ -322,6 +373,10 @@ class AntColonyApp:
         ttk.Button(btn_frame, text="🖼️ Sfondo",
                   style="Modern.TButton",
                   command=self.set_background_image).pack(side="right", padx=5)
+
+        ttk.Button(btn_frame, text="📥 Importa",
+                  style="Modern.TButton",
+                  command=self.import_colony).pack(side="right", padx=5)
 
         ttk.Button(btn_frame, text="➕ Nuova Colonia",
                   style="Success.TButton",
@@ -384,8 +439,10 @@ class AntColonyApp:
                              if isinstance(subchild, tk.Label) and subchild.cget("wraplength") > 0:
                                  subchild.configure(wraplength=col_width-40)
                     
-                    card.update_idletasks()
+                    # Use reqheight without forcing immediate layout update
                     h = card.winfo_reqheight()
+                    if h <= 1:  # Widget not yet realized
+                        h = 250  # Default reasonable height
                     if h > row_max_h: row_max_h = h
                     
                     self.canvas.coords(card.canvas_id, current_x, current_y)
@@ -518,7 +575,7 @@ class AntColonyApp:
                     new_height = canvas_height
                     new_width = int(canvas_height * img_ratio)
                     
-                img = img.resize((new_width, new_height), Image.BILINEAR)
+                img = img.resize((new_width, new_height), Image.Resampling.BILINEAR)
                 self.bg_photo_canvas = ImageTk.PhotoImage(img) # Mantieni reference
                 
                 # Centra immagine
@@ -527,6 +584,22 @@ class AntColonyApp:
                 
                 # Cerca se esiste già
                 bg_items = self.canvas.find_withtag("bg")
+                
+                # Calculate y position accounting for scroll offset
+                y_scroll = self.canvas.yview()[0]
+                scroll_region = self.canvas.cget('scrollregion')
+                if scroll_region:
+                    try:
+                        _, _, _, total_h = map(float, scroll_region.split())
+                        y_offset = y_scroll * total_h
+                    except:
+                        y_offset = 0
+                else:
+                    y_offset = 0
+                    
+                x_center = canvas_width // 2
+                y_center = (canvas_height // 2) + y_offset
+                
                 if bg_items:
                     self.canvas.itemconfig(bg_items[0], image=self.bg_photo_canvas)
                     self.canvas.coords(bg_items[0], x_center, y_center)
@@ -557,7 +630,7 @@ class AntColonyApp:
         if img_path and os.path.exists(img_path):
             try:
                 img = Image.open(img_path)
-                img.thumbnail((180, 180), Image.LANCZOS)
+                img.thumbnail((180, 180), Image.Resampling.LANCZOS)
                 photo = ImageTk.PhotoImage(img)
 
                 img_label = tk.Label(parent, image=photo, bg=CARD_BG_COLOR)
@@ -854,6 +927,54 @@ class AntColonyApp:
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(self.current_colony, f, indent=2, ensure_ascii=False)
             messagebox.showinfo("Successo", "Dati della colonia esportati con successo!")
+        except Exception as e:
+            messagebox.showerror("Errore", f"Errore durante l'esportazione: {str(e)}")
+    
+    def import_colony(self):
+        """Importa una colonia da un file JSON."""
+        file_path = filedialog.askopenfilename(
+            filetypes=[("JSON files", "*.json")],
+            title="Importa colonia da file"
+        )
+        
+        if not file_path:
+            return
+            
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                colony_data = json.load(f)
+            
+            # Validazione base
+            if not isinstance(colony_data, dict) or 'name' not in colony_data:
+                messagebox.showerror("Errore", "Il file non contiene dati di colonia validi.")
+                return
+            
+            # Controlla se esiste già una colonia con lo stesso nome
+            existing_names = [c['name'].lower() for c in self.colonies]
+            original_name = colony_data['name']
+            if original_name.lower() in existing_names:
+                # Aggiungi suffisso per evitare conflitti
+                counter = 1
+                while f"{original_name} ({counter})".lower() in existing_names:
+                    counter += 1
+                colony_data['name'] = f"{original_name} ({counter})"
+                messagebox.showinfo("Info", f"Colonia rinominata in '{colony_data['name']}' per evitare conflitti.")
+            
+            # Inizializza campi mancanti
+            colony_data.setdefault('history', [])
+            colony_data.setdefault('feeding_schedule', [])
+            colony_data.setdefault('recurring_schedule', [])
+            colony_data.setdefault('feeding_history', [])
+            colony_data.setdefault('notes', '')
+            colony_data.setdefault('images', [])
+            colony_data.setdefault('profile_image', '')
+            
+            self.colonies.append(colony_data)
+            self.save_data()
+            self.create_main_frame()
+            messagebox.showinfo("Successo", f"Colonia '{colony_data['name']}' importata con successo!")
+        except json.JSONDecodeError:
+            messagebox.showerror("Errore", "Il file non è un JSON valido.")
         except Exception as e:
             messagebox.showerror("Errore", f"Errore durante l'esportazione: {str(e)}")
 
@@ -1514,88 +1635,145 @@ class AntColonyApp:
     def show_settings(self):
         dialog = tk.Toplevel(self.root)
         dialog.title("Impostazioni")
-        dialog.geometry("700x600")
+        dialog.geometry("800x600")
         dialog.configure(bg=CARD_BG_COLOR)
         dialog.transient(self.root)
         dialog.grab_set()
-        
-        # Stile per Notebook
-        style = ttk.Style()
-        style.configure("TNotebook", background=CARD_BG_COLOR, borderwidth=0)
-        style.configure("TNotebook.Tab", background=DEFAULT_BG_COLOR, foreground="black", padding=[10, 5])
-        style.map("TNotebook.Tab", background=[("selected", ACCENT_COLOR)], foreground=[("selected", "white")])
 
-        notebook = ttk.Notebook(dialog)
-        notebook.pack(fill="both", expand=True, padx=20, pady=20)
+        # Layout principale
+        main_container = tk.Frame(dialog, bg=CARD_BG_COLOR)
+        main_container.pack(fill="both", expand=True)
 
-        # --- Tab Generale ---
-        tab_general = tk.Frame(notebook, bg=CARD_BG_COLOR)
-        notebook.add(tab_general, text="Generale")
-        
-        tk.Label(tab_general, text="Backup Dati", font=("Segoe UI", 12, "bold"), fg=TEXT_COLOR, bg=CARD_BG_COLOR).pack(anchor="w", pady=(20, 10), padx=20)
-        
-        backup_frame = tk.Frame(tab_general, bg=CARD_BG_COLOR)
-        backup_frame.pack(fill="x", padx=20)
-        
-        ttk.Button(backup_frame, text="Crea Backup Ora", style="Modern.TButton", command=self.create_backup).pack(side="left", padx=5)
-        ttk.Button(backup_frame, text="Ripristina Backup", style="Warning.TButton", command=self.restore_backup).pack(side="left", padx=5)
+        # Sidebar (Sinistra)
+        sidebar = tk.Frame(main_container, bg=DEFAULT_BG_COLOR, width=200)
+        sidebar.pack(side="left", fill="y")
+        sidebar.pack_propagate(False)
 
-        # --- Tab Notifiche ---
-        tab_notif = tk.Frame(notebook, bg=CARD_BG_COLOR)
-        notebook.add(tab_notif, text="Notifiche")
-        
-        tk.Label(tab_notif, text="Opzioni Notifiche", font=("Segoe UI", 12, "bold"), fg=TEXT_COLOR, bg=CARD_BG_COLOR).pack(anchor="w", pady=(20, 10), padx=20)
+        # Content Area (Destra)
+        content_area = tk.Frame(main_container, bg=CARD_BG_COLOR)
+        content_area.pack(side="right", fill="both", expand=True)
 
+        # Variabili di stato
+        self._current_settings_frame = None
+        
+        # Variabili impostazioni
         self.notif_desktop_var = tk.BooleanVar(value=self.settings.get("notifications_desktop", True))
-        ttk.Checkbutton(tab_notif, text="Notifiche Desktop", variable=self.notif_desktop_var, style="Toggle.TButton").pack(anchor="w", padx=25, pady=5)
-
         self.notif_email_var = tk.BooleanVar(value=self.settings.get("notifications_email", False))
-        ttk.Checkbutton(tab_notif, text="Notifiche Email", variable=self.notif_email_var, style="Toggle.TButton").pack(anchor="w", padx=25, pady=5)
-        
-        tk.Label(tab_notif, text="Configurazione SMTP (Email)", font=("Segoe UI", 12, "bold"), fg=TEXT_COLOR, bg=CARD_BG_COLOR).pack(anchor="w", pady=(20, 10), padx=20)
-        
-        email_grid = tk.Frame(tab_notif, bg=CARD_BG_COLOR)
-        email_grid.pack(fill="x", padx=20)
-        
-        tk.Label(email_grid, text="Email Mittente:", fg=TEXT_COLOR, bg=CARD_BG_COLOR).grid(row=0, column=0, sticky="w", pady=5)
         self.email_sender_var = tk.StringVar(value=self.settings.get("email_sender", ""))
-        tk.Entry(email_grid, textvariable=self.email_sender_var, width=30).grid(row=0, column=1, sticky="w", padx=10)
-        
-        tk.Label(email_grid, text="Password:", fg=TEXT_COLOR, bg=CARD_BG_COLOR).grid(row=1, column=0, sticky="w", pady=5)
         self.email_password_var = tk.StringVar(value=self.settings.get("email_password", ""))
-        tk.Entry(email_grid, textvariable=self.email_password_var, width=30, show="*").grid(row=1, column=1, sticky="w", padx=10)
-        
-        tk.Label(email_grid, text="Email Destinatario:", fg=TEXT_COLOR, bg=CARD_BG_COLOR).grid(row=2, column=0, sticky="w", pady=5)
         self.email_recipient_var = tk.StringVar(value=self.settings.get("email_recipient", ""))
-        tk.Entry(email_grid, textvariable=self.email_recipient_var, width=30).grid(row=2, column=1, sticky="w", padx=10)
-        
-        tk.Label(email_grid, text="Server SMTP:", fg=TEXT_COLOR, bg=CARD_BG_COLOR).grid(row=3, column=0, sticky="w", pady=5)
         self.smtp_server_var = tk.StringVar(value=self.settings.get("smtp_server", "smtp.gmail.com"))
-        tk.Entry(email_grid, textvariable=self.smtp_server_var, width=20).grid(row=3, column=1, sticky="w", padx=10)
-        
-        tk.Label(email_grid, text="Porta:", fg=TEXT_COLOR, bg=CARD_BG_COLOR).grid(row=4, column=0, sticky="w", pady=5)
         self.smtp_port_var = tk.StringVar(value=str(self.settings.get("smtp_port", 587)))
-        tk.Entry(email_grid, textvariable=self.smtp_port_var, width=10).grid(row=4, column=1, sticky="w", padx=10)
-        
-        ttk.Button(tab_notif, text="Test Connessione Email", style="Modern.TButton", command=self.test_email_connection).pack(anchor="w", padx=20, pady=15)
-
-        # --- Tab Aggiornamenti ---
-        tab_update = tk.Frame(notebook, bg=CARD_BG_COLOR)
-        notebook.add(tab_update, text="Info & Aggiornamenti")
-        
-        tk.Label(tab_update, text=f"Versione Attuale: {CURRENT_VERSION}", font=("Segoe UI", 14), fg=TEXT_COLOR, bg=CARD_BG_COLOR).pack(pady=20)
-        
-        tk.Label(tab_update, text="URL Repository (Raw .py):", fg=TEXT_COLOR, bg=CARD_BG_COLOR).pack(anchor="w", padx=20)
         self.update_url_var = tk.StringVar(value=self.settings.get("update_url", ""))
-        tk.Entry(tab_update, textvariable=self.update_url_var, width=50).pack(fill="x", padx=20, pady=5)
-        tk.Label(tab_update, text="Esempio: https://raw.githubusercontent.com/user/repo/main/app.py", font=("Segoe UI", 8), fg="#95a5a6", bg=CARD_BG_COLOR).pack(anchor="w", padx=20)
-        
-        ttk.Button(tab_update, text="Cerca Aggiornamenti", style="Success.TButton", command=self.check_for_updates).pack(pady=20)
-        
-        # --- Pulsanti Azione ---
-        action_frame = tk.Frame(dialog, bg=CARD_BG_COLOR)
-        action_frame.pack(fill="x", pady=15, padx=20)
-        
+
+        # Stile pulsanti sidebar
+        def create_sidebar_btn(text, command):
+            btn = tk.Button(sidebar, text=text, font=("Segoe UI", 11),
+                          fg=TEXT_COLOR, bg=DEFAULT_BG_COLOR,
+                          activebackground=ACCENT_COLOR, activeforeground="white",
+                          bd=0, anchor="w", padx=20, pady=10,
+                          command=command)
+            btn.pack(fill="x")
+            return btn
+
+        # Funzioni di navigazione
+        def clear_content():
+            if self._current_settings_frame:
+                self._current_settings_frame.destroy()
+
+        def show_general():
+            clear_content()
+            frame = tk.Frame(content_area, bg=CARD_BG_COLOR)
+            frame.pack(fill="both", expand=True, padx=30, pady=30)
+            self._current_settings_frame = frame
+
+            tk.Label(frame, text="Generale", font=("Segoe UI", 18, "bold"), fg=TEXT_COLOR, bg=CARD_BG_COLOR).pack(anchor="w", pady=(0, 20))
+
+            # Backup
+            bk_group = tk.LabelFrame(frame, text="Backup & Ripristino", font=("Segoe UI", 11, "bold"), fg=TEXT_COLOR, bg=CARD_BG_COLOR, bd=1, relief="solid")
+            bk_group.pack(fill="x", pady=10, ipady=10)
+            
+            tk.Label(bk_group, text="Gestisci i salvataggi dei tuoi dati.", font=("Segoe UI", 10), fg="#bdc3c7", bg=CARD_BG_COLOR).pack(anchor="w", padx=20, pady=5)
+            
+            btn_frame = tk.Frame(bk_group, bg=CARD_BG_COLOR)
+            btn_frame.pack(fill="x", padx=20, pady=10)
+            ttk.Button(btn_frame, text="Crea Backup Ora", style="Modern.TButton", command=lambda: self.create_backup(silent=False)).pack(side="left", padx=(0, 10))
+            ttk.Button(btn_frame, text="Ripristina Backup", style="Warning.TButton", command=self.restore_backup).pack(side="left")
+
+        def show_notifications():
+            clear_content()
+            frame = tk.Frame(content_area, bg=CARD_BG_COLOR)
+            frame.pack(fill="both", expand=True, padx=30, pady=30)
+            self._current_settings_frame = frame
+
+            tk.Label(frame, text="Notifiche", font=("Segoe UI", 18, "bold"), fg=TEXT_COLOR, bg=CARD_BG_COLOR).pack(anchor="w", pady=(0, 20))
+
+            # Toggles
+            tk.Label(frame, text="Preferenze di notifica", font=("Segoe UI", 12, "bold"), fg=TEXT_COLOR, bg=CARD_BG_COLOR).pack(anchor="w", pady=(10, 5))
+            
+            # Use default style for clear checkbox state
+            ttk.Checkbutton(frame, text="🔔 Notifiche Desktop (Popup di Windows)", variable=self.notif_desktop_var).pack(anchor="w", padx=10, pady=5)
+            ttk.Checkbutton(frame, text="📧 Notifiche Email", variable=self.notif_email_var).pack(anchor="w", padx=10, pady=5)
+
+            # Email Config
+            email_group = tk.LabelFrame(frame, text="Configurazione Email (SMTP)", font=("Segoe UI", 11, "bold"), fg=TEXT_COLOR, bg=CARD_BG_COLOR, bd=1, relief="solid")
+            email_group.pack(fill="x", pady=20, ipady=10)
+
+            grid_frame = tk.Frame(email_group, bg=CARD_BG_COLOR)
+            grid_frame.pack(padx=20, pady=10)
+
+            # Campi Email
+            fields = [
+                ("Email Mittente:", self.email_sender_var),
+                ("Password App:", self.email_password_var),
+                ("Email Destinarario:", self.email_recipient_var),
+                ("Server SMTP:", self.smtp_server_var),
+                ("Porta:", self.smtp_port_var)
+            ]
+
+            for i, (label_text, var) in enumerate(fields):
+                tk.Label(grid_frame, text=label_text, fg=TEXT_COLOR, bg=CARD_BG_COLOR).grid(row=i, column=0, sticky="w", pady=5)
+                entry = tk.Entry(grid_frame, textvariable=var, width=30)
+                if "Password" in label_text: entry.configure(show="*")
+                entry.grid(row=i, column=1, sticky="w", padx=10)
+
+            ttk.Button(email_group, text="Test Connessione", style="Modern.TButton", command=self.test_email_connection).pack(anchor="w", padx=20, pady=10)
+
+        def show_info():
+            clear_content()
+            frame = tk.Frame(content_area, bg=CARD_BG_COLOR)
+            frame.pack(fill="both", expand=True, padx=30, pady=30)
+            self._current_settings_frame = frame
+
+            tk.Label(frame, text="Info & Aggiornamenti", font=("Segoe UI", 18, "bold"), fg=TEXT_COLOR, bg=CARD_BG_COLOR).pack(anchor="w", pady=(0, 20))
+
+            info_container = tk.Frame(frame, bg=CARD_BG_COLOR)
+            info_container.pack(fill="x", pady=10)
+            
+            tk.Label(info_container, text="Ant Colony Monitor", font=("Segoe UI", 16, "bold"), fg=ACCENT_COLOR, bg=CARD_BG_COLOR).pack(anchor="w")
+            tk.Label(info_container, text=f"Versione: {CURRENT_VERSION}", font=("Segoe UI", 12), fg=TEXT_COLOR, bg=CARD_BG_COLOR).pack(anchor="w")
+
+            # Updates
+            upd_group = tk.LabelFrame(frame, text="Aggiornamenti Software", font=("Segoe UI", 11, "bold"), fg=TEXT_COLOR, bg=CARD_BG_COLOR, bd=1, relief="solid")
+            upd_group.pack(fill="x", pady=20, ipady=10)
+
+            tk.Label(upd_group, text="URL Repository:", fg=TEXT_COLOR, bg=CARD_BG_COLOR).pack(anchor="w", padx=20, pady=(10,0))
+            tk.Entry(upd_group, textvariable=self.update_url_var, width=50).pack(fill="x", padx=20, pady=5)
+            tk.Label(upd_group, text="URL del file 'raw' su GitHub", font=("Segoe UI", 8), fg="#95a5a6", bg=CARD_BG_COLOR).pack(anchor="w", padx=20)
+            
+            ttk.Button(upd_group, text="Cerca Aggiornamenti", style="Success.TButton", command=self.check_for_updates).pack(anchor="w", padx=20, pady=15)
+
+        # Pulsanti Sidebar
+        tk.Label(sidebar, text="IMPOSTAZIONI", font=("Segoe UI", 12, "bold"), fg="#bdc3c7", bg=DEFAULT_BG_COLOR).pack(pady=(20, 10))
+        create_sidebar_btn("🏠 Generale", show_general)
+        create_sidebar_btn("🔔 Notifiche", show_notifications)
+        create_sidebar_btn("ℹ️ Info", show_info)
+
+        # Footer con pulsanti azione
+        footer = tk.Frame(content_area, bg=DEFAULT_BG_COLOR, height=60)
+        footer.pack(side="bottom", fill="x")
+        footer.pack_propagate(False)
+
         def save_and_close():
             self.settings["notifications_email"] = self.notif_email_var.get()
             self.settings["notifications_desktop"] = self.notif_desktop_var.get()
@@ -1615,8 +1793,14 @@ class AntColonyApp:
             messagebox.showinfo("Successo", "Impostazioni salvate con successo!")
             self.restart_notification_thread()
 
-        ttk.Button(action_frame, text="Salva", style="Success.TButton", command=save_and_close).pack(side="right", padx=5)
-        ttk.Button(action_frame, text="Annulla", style="Danger.TButton", command=dialog.destroy).pack(side="right", padx=5)
+        btn_box = tk.Frame(footer, bg=DEFAULT_BG_COLOR)
+        btn_box.pack(side="right", padx=20, pady=10)
+        
+        ttk.Button(btn_box, text="Salva e Chiudi", style="Success.TButton", command=save_and_close).pack(side="left", padx=5)
+        ttk.Button(btn_box, text="Annulla", style="Danger.TButton", command=dialog.destroy).pack(side="left", padx=5)
+
+        # Mostra schermata iniziale
+        show_general()
 
     def check_for_updates(self):
         url = self.update_url_var.get().strip()
@@ -1720,7 +1904,7 @@ class AntColonyApp:
         except Exception as e:
             messagebox.showerror("Errore", f"Impossibile inviare l'email: {e}")
 
-    def create_backup(self):
+    def create_backup(self, silent=False):
         if not os.path.exists(BACKUP_DIR):
             os.makedirs(BACKUP_DIR)
         
@@ -1733,9 +1917,15 @@ class AntColonyApp:
             backups = sorted([f for f in os.listdir(BACKUP_DIR) if f.startswith("backup_")], reverse=True)
             for old_backup in backups[5:]:
                 os.remove(os.path.join(BACKUP_DIR, old_backup))
-            messagebox.showinfo("Backup", "Backup creato con successo!")
+            if not silent:
+                messagebox.showinfo("Backup", "Backup creato con successo!")
+            else:
+                logger.info("Backup automatico creato")
         except Exception as e:
-            messagebox.showerror("Errore", f"Errore durante il backup: {e}")
+            if not silent:
+                messagebox.showerror("Errore", f"Errore durante il backup: {e}")
+            else:
+                logger.error(f"Errore durante backup automatico: {e}")
 
     def restore_backup(self):
         if not os.path.exists(BACKUP_DIR):
@@ -1784,12 +1974,10 @@ class AntColonyApp:
                         raise ValueError("Il file di backup è vuoto")
 
                     # Verify it's a valid JSON structure before overwriting
-                    with open(backup_file, 'r') as f:
-                        import json
+                    with open(backup_file, 'r', encoding='utf-8') as f:
                         test_load = json.load(f)
-                        if not isinstance(test_load, list) or len(test_load) < 2: # Minimal structure check [colonies, settings]
-                             # Potrebbe essere vecchio formato, ma almeno deve essere json valido
-                             pass
+                        if not isinstance(test_load, dict):
+                            raise ValueError("Il backup non ha il formato corretto (deve essere un dizionario).")
 
                     shutil.copy(backup_file, DATA_FILE)
                     self.colonies, self.settings = self.load_data()
@@ -1832,7 +2020,6 @@ class AntColonyApp:
         )
         if file_path:
             self.background_image_path = file_path
-            self.settings["background_image_path"] = file_path
             self.settings["background_image_path"] = file_path
             self.save_data()
             self.create_main_frame() # Ricrea l'interfaccia per applicare la trasparenza
@@ -2167,15 +2354,22 @@ class AntColonyApp:
                     start_date = datetime.fromisoformat(recurring['start_date']).date()
                     interval = recurring['interval']
                     
+                    # Skip invalid intervals to prevent infinite loop
+                    if interval <= 0:
+                        continue
+                    
                     if today >= start_date:
                         days_since_start = (today - start_date).days
                         if days_since_start % interval == 0:
                             dates.add(today)
                         
                         # Aggiungi anche gli eventi futuri nel mese corrente
+                        # Calculate end of current calendar month to prevent infinite loop
+                        end_of_month = self.current_calendar_date.replace(day=28) + timedelta(days=4)
+                        end_of_month = end_of_month.replace(day=1)  # First day of next month
                         current_date = start_date
-                        while current_date.month <= self.current_calendar_date.month and current_date.year <= self.current_calendar_date.year:
-                            if current_date.month == self.current_calendar_date.month:
+                        while current_date < end_of_month:
+                            if current_date.month == self.current_calendar_date.month and current_date.year == self.current_calendar_date.year:
                                 dates.add(current_date)
                             current_date += timedelta(days=interval)
                         
@@ -2207,14 +2401,14 @@ class AntColonyApp:
         if img_path and os.path.exists(img_path):
             try:
                 img = Image.open(img_path)
-                img.thumbnail((200, 200), Image.LANCZOS)
+                img.thumbnail((200, 200), Image.Resampling.LANCZOS)
                 photo = ImageTk.PhotoImage(img)
                 self.profile_img_label.config(image=photo)
                 self.profile_img_label.image = photo
             except (IOError, OSError):
-                self.create_placeholder_image(self.profile_img_label.master)
+                self.profile_img_label.config(image='', text="🐜\nNessuna\nImmagine", font=("Segoe UI", 12), fg="#95a5a6", bg=DEFAULT_BG_COLOR)
         else:
-            self.create_placeholder_image(self.profile_img_label.master)
+            self.profile_img_label.config(image='', text="🐜\nNessuna\nImmagine", font=("Segoe UI", 12), fg="#95a5a6", bg=DEFAULT_BG_COLOR)
 
     def change_profile_image(self):
         file_path = filedialog.askopenfilename(
@@ -2268,7 +2462,7 @@ class AntColonyApp:
                 
                 try:
                     img = Image.open(img_path)
-                    img.thumbnail((150, 150), Image.LANCZOS)
+                    img.thumbnail((150, 150), Image.Resampling.LANCZOS)
                     photo = ImageTk.PhotoImage(img)
                     
                     frame = tk.Frame(self.gallery_frame, bg=CARD_BG_COLOR)
@@ -2308,20 +2502,20 @@ class AntColonyApp:
         if self.settings.get("notifications_email") or (self.settings.get("notifications_desktop") and NOTIFICATIONS_AVAILABLE):
              self.notification_thread_running = True
              threading.Thread(target=self._check_notifications, daemon=True).start()
-             print("Thread di notifica avviato.")
+             logger.info("Thread di notifica avviato.")
         else:
-            print("Notifiche disabilitate nelle impostazioni.")
+            logger.info("Notifiche disabilitate nelle impostazioni.")
 
     def restart_notification_thread(self):
         self.notification_thread_running = False
-        time.sleep(1)  # Dà al vecchio thread il tempo di terminare
-        self.start_notification_thread()
+        # Use after() to avoid blocking main thread
+        self.root.after(1000, self.start_notification_thread)
 
     def _check_notifications(self):
         while self.notification_thread_running:
             now = datetime.now()
             today = now.date()
-            print(f"Controllo notifiche... Ora attuale: {now.strftime('%H:%M:%S')}")
+            logger.debug(f"Controllo notifiche... Ora attuale: {now.strftime('%H:%M:%S')}")
             
             for colony in self.colonies:
                 # Gestisci i promemoria ricorrenti
@@ -2329,6 +2523,10 @@ class AntColonyApp:
                     try:
                         start_date = datetime.fromisoformat(recurring['start_date']).date()
                         interval = recurring['interval']
+                        
+                        # Skip invalid intervals to prevent modulo by zero
+                        if interval <= 0:
+                            continue
 
                         if today >= start_date:
                             days_since_start = (today - start_date).days
@@ -2339,7 +2537,7 @@ class AntColonyApp:
                                     for s in colony.get('feeding_schedule', [])
                                 )
                                 if not is_already_generated:
-                                    print(f"Generando promemoria ricorrente per {colony['name']} per la data {today}")
+                                    logger.info(f"Generando promemoria ricorrente per {colony['name']} per la data {today}")
                                     new_schedule = {
                                         "datetime": datetime.combine(today, datetime.min.time()).isoformat(),
                                         "description": f"Promemoria ricorrente (ogni {interval} giorni)",
@@ -2349,7 +2547,7 @@ class AntColonyApp:
                                     colony['feeding_schedule'].append(new_schedule)
                                     self.save_data()
                     except (ValueError, KeyError) as e:
-                        print(f"Errore nel formato del promemoria ricorrente per la colonia {colony['name']}: {e}")
+                        logger.error(f"Errore nel formato del promemoria ricorrente per la colonia {colony['name']}: {e}")
                         colony['recurring_schedule'].remove(recurring)
                         self.save_data()
 
@@ -2360,7 +2558,7 @@ class AntColonyApp:
                         description = schedule_dict.get('description', '')
                         
                         if now >= schedule_dt and now < schedule_dt + timedelta(minutes=5):
-                            print(f"Promemoria singolo trovato per la colonia {colony['name']} alle {schedule_dt.strftime('%H:%M')}")
+                            logger.info(f"Promemoria singolo trovato per la colonia {colony['name']} alle {schedule_dt.strftime('%H:%M')}")
                             if self.settings.get("notifications_desktop") and NOTIFICATIONS_AVAILABLE:
                                 self._send_desktop_notification(colony["name"], schedule_dt, description)
                             if self.settings.get("notifications_email"):
@@ -2370,10 +2568,10 @@ class AntColonyApp:
                             # per registrarlo nella cronologia
                             # colony["feeding_schedule"].remove(schedule_dict)
                             # self.save_data() 
-                            print(f"Notifica inviata per {colony['name']}")
+                            logger.info(f"Notifica inviata per {colony['name']}")
 
                     except (ValueError, KeyError) as e:
-                        print(f"Errore nel formato del promemoria per la colonia {colony['name']}: {e}")
+                        logger.error(f"Errore nel formato del promemoria per la colonia {colony['name']}: {e}")
                         # Rimuovi il promemoria corrotto per evitare errori futuri
                         colony["feeding_schedule"].remove(schedule_dict)
                         self.save_data()
@@ -2390,7 +2588,7 @@ class AntColonyApp:
             message=notification_message,
             app_name="Ant Colony Monitor"
         )
-        print("Notifica desktop inviata.")
+        logger.debug("Notifica desktop inviata.")
     
     def _send_email_notification(self, colony_name, schedule_dt, description):
         sender_email = self.settings.get("email_sender")
@@ -2400,7 +2598,7 @@ class AntColonyApp:
         port = self.settings.get("smtp_port")
 
         if not all([sender_email, password, recipient_email, smtp_server, port]):
-            print("Avviso: le impostazioni email non sono complete. Impossibile inviare la notifica.")
+            logger.warning("Impostazioni email incomplete. Impossibile inviare la notifica.")
             return
 
         subject = f"Promemoria Alimentazione: {colony_name}"
@@ -2423,11 +2621,11 @@ class AntColonyApp:
                     server.login(sender_email, password)
                     message = f"Subject: {subject}\n\n{body}"
                     server.sendmail(sender_email, recipient_email, message.encode('utf-8'))
-            print(f"Notifica email inviata con successo per la colonia {colony_name}.")
+            logger.info(f"Notifica email inviata con successo per la colonia {colony_name}.")
         except smtplib.SMTPAuthenticationError:
-            print("Errore di autenticazione SMTP. Controlla email e password nelle impostazioni.")
+            logger.error("Errore di autenticazione SMTP. Controlla email e password nelle impostazioni.")
         except Exception as e:
-            print(f"Errore durante l'invio della notifica email per la colonia {colony_name}: {e}")
+            logger.error(f"Errore durante l'invio della notifica email per la colonia {colony_name}: {e}")
 
     # Nuovo metodo per la chiusura definitiva
     def close_app(self):
@@ -2444,8 +2642,9 @@ def main():
     root = tk.Tk()
 
     try:
-        root.iconbitmap("ant_icon.ico")
-    except:
+        icon_path = os.path.join(SCRIPT_DIR, "ant_icon.ico")
+        root.iconbitmap(icon_path)
+    except tk.TclError:
         pass
 
     app = AntColonyApp(root)
