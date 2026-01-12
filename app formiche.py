@@ -50,7 +50,7 @@ CARD_BG_COLOR = "#212e4d"   # Blu più chiaro per i pannelli
 TEXT_COLOR = "#ecf0f1"
 ACCENT_COLOR = "#3498db"
 GRAPH_COLOR = "#2ecc71" # Verde per il grafico
-CURRENT_VERSION = "1.2.5"
+CURRENT_VERSION = "1.2.6"
 
 # --- Database Specie ---
 SPECIES_DATA = {
@@ -371,7 +371,7 @@ class AntColonyApp:
         
         tk.Label(f_row1, text="🔍 Cerca:", font=("Segoe UI", 10), bg=CARD_BG_COLOR, fg=TEXT_COLOR).pack(side="left")
         self.filter_name_var = tk.StringVar()
-        self.filter_name_var.trace("w", lambda name, index, mode: self.apply_filters())
+        self.filter_name_var.trace_add("write", lambda name, index, mode: self.apply_filters())
         
         e_search = tk.Entry(f_row1, textvariable=self.filter_name_var, width=20, font=("Segoe UI", 10),
                            bg=DEFAULT_BG_COLOR, fg=TEXT_COLOR, relief="flat", insertbackground=TEXT_COLOR)
@@ -2297,7 +2297,8 @@ class AntColonyApp:
         show_general()
 
     def check_for_updates(self, silent=False):
-        url = self.update_url_var.get().strip()
+        # Fix: Check if update_url_var exists (it's only created in show_settings), otherwise use settings dict
+        url = self.update_url_var.get().strip() if hasattr(self, 'update_url_var') else self.settings.get("update_url", DEFAULT_UPDATE_URL)
         if not url:
             # Fallback to default if empty
             url = self.settings.get("update_url", DEFAULT_UPDATE_URL)
