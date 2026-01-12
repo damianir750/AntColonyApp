@@ -50,7 +50,7 @@ CARD_BG_COLOR = "#212e4d"   # Blu più chiaro per i pannelli
 TEXT_COLOR = "#ecf0f1"
 ACCENT_COLOR = "#3498db"
 GRAPH_COLOR = "#2ecc71" # Verde per il grafico
-CURRENT_VERSION = "1.2.7"
+CURRENT_VERSION = "1.2.6"
 
 # --- Database Specie ---
 SPECIES_DATA = {
@@ -322,13 +322,6 @@ class AntColonyApp:
                            foreground=TEXT_COLOR,
                            background="#27ae60",
                            borderwidth=0)
-        
-        # Configurazione Listbox dei Combobox (Popdown globali)
-        self.root.option_add("*TCombobox*Listbox.background", CARD_BG_COLOR)
-        self.root.option_add("*TCombobox*Listbox.foreground", TEXT_COLOR)
-        self.root.option_add("*TCombobox*Listbox.selectBackground", ACCENT_COLOR)
-        self.root.option_add("*TCombobox*Listbox.selectForeground", "white")
-        self.root.option_add("*TCombobox*Listbox.font", ("Segoe UI", 10))
         
         self.style.configure("Warning.TButton",
                            font=("Segoe UI", 10, "bold"),
