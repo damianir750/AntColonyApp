@@ -50,7 +50,7 @@ CARD_BG_COLOR = "#212e4d"   # Blu più chiaro per i pannelli
 TEXT_COLOR = "#ecf0f1"
 ACCENT_COLOR = "#3498db"
 GRAPH_COLOR = "#2ecc71" # Verde per il grafico
-CURRENT_VERSION = "1.2.1"
+CURRENT_VERSION = "1.2.2"
 
 # --- Database Specie ---
 SPECIES_DATA = {
@@ -2254,57 +2254,76 @@ class AntColonyApp:
         # Mostra schermata iniziale
         show_general()
 
-    def check_for_updates(self):
+    def check_for_updates(self, silent=False):
         url = self.update_url_var.get().strip()
         if not url:
-            messagebox.showerror("Errore", "Inserisci un URL valido per l'aggiornamento.")
-            return
+            # Fallback to default if empty
+            url = self.settings.get("update_url", DEFAULT_UPDATE_URL)
+
+        if not url and not silent:
+            # Only show error if no url and not silent (though default constant exists)
+             pass 
             
         try:
             import urllib.request
             
             # Scarica il file remoto
             try:
-                with urllib.request.urlopen(url) as response:
+                # Timeout needed
+                with urllib.request.urlopen(url, timeout=5) as response:
                     remote_code = response.read()
             except Exception as dl_err:
-                messagebox.showerror("Errore Download", f"Impossibile scaricare dal server:\n{dl_err}")
+                if not silent:
+                    messagebox.showerror("Errore Download", f"Impossibile scaricare dal server:\n{dl_err}")
+                else:
+                    logger.error(f"Errore controllo update: {dl_err}")
                 return
 
             local_code = ""
-            with open(__file__, "rb") as f:
+            with open(os.path.abspath(__file__), "rb") as f:
                 local_code = f.read()
                 
-            # Normalize line endings for comparison just in case
-            if remote_code.replace(b'\r\n', b'\n') == local_code.replace(b'\r\n', b'\n'):
-                messagebox.showinfo("Aggiornamento", "Nessun aggiornamento disponibile. Hai l'ultima versione.")
+            # Regex check for version first (faster/safer)
+            import re
+            content_str = remote_code.decode('utf-8', errors='ignore')
+            match = re.search(r'CURRENT_VERSION\s*=\s*"([^"]+)"', content_str)
+            remote_version = match.group(1) if match else "Unknown"
+            
+            if remote_version == CURRENT_VERSION:
+                if not silent:
+                    messagebox.showinfo("Aggiornamento", "Nessun aggiornamento disponibile. Hai l'ultima versione.")
                 return
-                
-            if messagebox.askyesno("Aggiornamento Disponibile", "È stata trovata una nuova versione. Vuoi aggiornare ora?\n\nL'applicazione verrà riavviata."):
+
+            msg = f"È stata trovata una nuova versione ({remote_version}). Vuoi aggiornare ora?\n\nL'applicazione verrà riavviata."
+            if messagebox.askyesno("Aggiornamento Disponibile", msg):
                 self.perform_update(remote_code)
                 
         except Exception as e:
-            messagebox.showerror("Errore", f"Impossibile controllare aggiornamenti:\n{e}")
+            if not silent:
+                messagebox.showerror("Errore", f"Impossibile controllare aggiornamenti:\n{e}")
+            else:
+                logger.error(f"Errore update check: {e}")
 
     def perform_update(self, new_code):
         try:
             import sys
             import subprocess
             
-            # Scrivi il nuovo codice in un file temporaneo
-            new_file = "app_update.new"
+            # Use SCRIPT_DIR for temp files to avoid CWD permission issues
+            new_file = os.path.join(SCRIPT_DIR, "app_update.new")
+            batch_script = os.path.join(SCRIPT_DIR, "update.bat")
+            current_script = os.path.abspath(__file__)
+            python_exe = sys.executable
+
             with open(new_file, "wb") as f:
                 f.write(new_code)
                 
             # Crea script batch per sostituire il file e riavviare
-            current_script = os.path.abspath(__file__)
-            batch_script = "update.bat"
-            
             with open(batch_script, "w") as f:
                 f.write(f"@echo off\n")
                 f.write(f"timeout /t 2 >nul\n") # Aspetta che l'app si chiuda
                 f.write(f"move /y \"{new_file}\" \"{current_script}\"\n")
-                f.write(f"start python \"{current_script}\"\n")
+                f.write(f"start \"\" \"{python_exe}\" \"{current_script}\"\n")
                 f.write(f"del \"%~f0\"\n") # Autodistruzione script
                 
             # Avvia lo script e chiudi l'app
@@ -3079,26 +3098,7 @@ class AntColonyApp:
         except Exception as e:
             logger.error(f"Errore durante l'invio della notifica email per la colonia {colony_name}: {e}")
 
-    def check_for_updates(self, silent=False):
-        try:
-            url = self.settings.get("update_url", DEFAULT_UPDATE_URL)
-            # Use a timeout to prevent hanging
-            with urllib.request.urlopen(url, timeout=5) as response:
-                content = response.read().decode('utf-8')
-            
-            # Simple regex to find CURRENT_VERSION = "x.y.z"
-            match = re.search(r'CURRENT_VERSION\s*=\s*"([^"]+)"', content)
-            if match:
-                remote_version = match.group(1)
-                if remote_version != CURRENT_VERSION:
-                    msg = f"Nuova versione {remote_version} disponibile!"
-                    self.root.after(0, lambda: messagebox.showinfo("Aggiornamento", msg))
-                elif not silent:
-                    self.root.after(0, lambda: messagebox.showinfo("Aggiornamento", "Nessun aggiornamento disponibile."))
-        except Exception as e:
-            logger.error(f"Errore controllo aggiornamenti: {e}")
-            if not silent:
-                 self.root.after(0, lambda: messagebox.showerror("Errore", f"Impossibile controllare aggiornamenti: {e}"))
+
 
     # Nuovo metodo per la chiusura definitiva
     def close_app(self):
