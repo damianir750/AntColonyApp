@@ -50,7 +50,7 @@ CARD_BG_COLOR = "#212e4d"   # Blu più chiaro per i pannelli
 TEXT_COLOR = "#ecf0f1"
 ACCENT_COLOR = "#3498db"
 GRAPH_COLOR = "#2ecc71" # Verde per il grafico
-CURRENT_VERSION = "1.2.4"
+CURRENT_VERSION = "1.2.5"
 
 # --- Database Specie ---
 SPECIES_DATA = {
@@ -288,6 +288,21 @@ class AntColonyApp:
 
         self.style.map("Horizontal.TScrollbar",
             background=[("active", ACCENT_COLOR), ("disabled", DEFAULT_BG_COLOR)]
+        )
+
+        # Configurazione Combobox Scure
+        self.style.configure("TCombobox",
+                           fieldbackground=DEFAULT_BG_COLOR,
+                           background=CARD_BG_COLOR,
+                           foreground=TEXT_COLOR,
+                           arrowcolor=TEXT_COLOR,
+                           relief="flat",
+                           borderwidth=1)
+        
+        self.style.map("TCombobox",
+            fieldbackground=[("readonly", DEFAULT_BG_COLOR), ("disabled", DEFAULT_BG_COLOR)],
+            selectbackground=[("readonly", ACCENT_COLOR)],
+            selectforeground=[("readonly", "white")]
         )
 
         self.style.configure("Modern.TButton",
