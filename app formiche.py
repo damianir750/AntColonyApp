@@ -371,7 +371,7 @@ class AntColonyApp:
         
         tk.Label(f_row1, text="🔍 Cerca:", font=("Segoe UI", 10), bg=CARD_BG_COLOR, fg=TEXT_COLOR).pack(side="left")
         self.filter_name_var = tk.StringVar()
-        self.filter_name_var.trace_add("write", lambda name, index, mode: self.apply_filters())
+        self.filter_name_var.trace("w", lambda name, index, mode: self.apply_filters())
         
         e_search = tk.Entry(f_row1, textvariable=self.filter_name_var, width=20, font=("Segoe UI", 10),
                            bg=DEFAULT_BG_COLOR, fg=TEXT_COLOR, relief="flat", insertbackground=TEXT_COLOR)
@@ -2297,10 +2297,13 @@ class AntColonyApp:
         show_general()
 
     def check_for_updates(self, silent=False):
-        # Fix: Check if update_url_var exists (it's only created in show_settings), otherwise use settings dict
-        url = self.update_url_var.get().strip() if hasattr(self, 'update_url_var') else self.settings.get("update_url", DEFAULT_UPDATE_URL)
+        # Determine URL: use variable if UI is open, otherwise settings
+        url = ""
+        if hasattr(self, 'update_url_var'):
+            url = self.update_url_var.get().strip()
+            
         if not url:
-            # Fallback to default if empty
+            # Fallback to settings or default
             url = self.settings.get("update_url", DEFAULT_UPDATE_URL)
 
         if not url and not silent:
