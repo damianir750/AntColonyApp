@@ -48,7 +48,47 @@ CARD_BG_COLOR = "#212e4d"   # Blu più chiaro per i pannelli
 TEXT_COLOR = "#ecf0f1"
 ACCENT_COLOR = "#3498db"
 GRAPH_COLOR = "#2ecc71" # Verde per il grafico
-CURRENT_VERSION = "1.1.0"
+CURRENT_VERSION = "1.2.0"
+
+# --- Database Specie ---
+SPECIES_DATA = {
+    "Messor barbarus": {
+        "description": "Formica mietitrice. Granivora, necessita di semi.",
+        "notes": "Temp: 22-26°C. Umidità: 50-70%. Ibernazione: Sì (Nov-Mar, 15°C).\nCibo: Semi (90%), insetti morti (10%).\nRegina sciauma in autunno."
+    },
+    "Lasius niger": {
+        "description": "Formica nera da giardino. Facile da allevare.",
+        "notes": "Temp: 20-25°C. Umidità: 30-50%. Ibernazione: Sì (Nov-Mar, 5-10°C).\nCibo: Insetti morti, liquidi zuccherini.\nMolto resistente."
+    },
+    "Lasius flavus": {
+        "description": "Formica gialla sotterranea. Timida.",
+        "notes": "Temp: 20-24°C. Umidità: 50-70%. Ibernazione: Sì.\nCibo: Piccoli insetti, liquidi.\nVive nel sottosuolo, evitare luce forte."
+    },
+    "Camponotus vagus": {
+        "description": "Formica carpentiere. Grande e aggressiva.",
+        "notes": "Temp: 24-28°C. Umidità: 40-60%. Ibernazione: Sì (corta).\nCibo: Insetti, liquidi zuccherini.\nNidifica nel legno secco."
+    },
+    "Camponotus ligniperda": {
+        "description": "Una delle formiche più grandi d'Europa.",
+        "notes": "Temp: 21-25°C. Umidità: 50%. Ibernazione: Obbligatoria (lunga).\nCibo: Liquidi zuccherini, insetti.\nSviluppo lento."
+    },
+    "Pheidole pallidula": {
+        "description": "Piccola formica con soldati macrocefali.",
+        "notes": "Temp: 25-28°C. Umidità: 50-60%. Ibernazione: Breve/Facoltativa.\nCibo: Insetti (molto voraci), semi, liquidi.\nAttenzione alle fughe!"
+    },
+    "Crematogaster scutellaris": {
+        "description": "Formica rizzaculo. Testa rossa, addome a punta.",
+        "notes": "Temp: 22-28°C. Umidità: Bassa (nidifica nel legno).\nIbernazione: Breve (10-15°C).\nCibo: Liquidi zuccherini, insetti."
+    },
+    "Messor capitatus": {
+        "description": "Formica mietitrice nera grande.",
+        "notes": "Simile a barbarus ma tutta nera.\nTemp: 24-28°C. Cibo: Prevalentemente semi."
+    },
+    "Tetramorium caespitum": {
+        "description": "Formica piccola e combattiva.",
+        "notes": "Temp: 21-26°C. Onnivora, mangia tutto. Crescita esplosiva."
+    }
+}
 
 
 DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/damianir750/AntColonyApp/refs/heads/main/app%20formiche.py"
@@ -67,9 +107,17 @@ class AntColonyApp:
         self.style.theme_use('clam')
         self._configure_styles()
 
-        self.colonies = []
         self.settings = {}
-        self.colonies, self.settings = self.load_data()
+        self.colonies = []
+        self.custom_species = {}
+        self.current_view_mode = "grid" # "grid" or "dashboard"
+        
+        self.colonies, self.settings, self.custom_species = self.load_data()
+        
+        # Merge DB
+        self.species_db = SPECIES_DATA.copy()
+        self.species_db.update(self.custom_species)
+        
         if os.path.exists(DATA_FILE):
             self.create_backup(silent=True)
 
@@ -101,6 +149,8 @@ class AntColonyApp:
 
     def load_data(self):
         colonies = []
+        colonies = []
+        custom_species = {}
         settings = {
             "notifications": True,
             "notifications_email": False,
@@ -120,6 +170,7 @@ class AntColonyApp:
                 with open(DATA_FILE, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     colonies = data.get("colonies", [])
+                    custom_species = data.get("custom_species", {})
                     settings.update(data.get("settings", {}))
                     
                     # Fix for update_url: overwrite if it's the old incorrect one
@@ -169,14 +220,19 @@ class AntColonyApp:
                 messagebox.showerror("Errore", "Impossibile caricare il file dei dati. Verrà creato un nuovo file.")
                 colonies = []
                 
-        return colonies, settings
+            except (json.JSONDecodeError, FileNotFoundError):
+                messagebox.showerror("Errore", "Impossibile caricare il file dei dati. Verrà creato un nuovo file.")
+                colonies = []
+                
+        return colonies, settings, custom_species
 
     def save_data(self):
         try:
             with open(DATA_FILE, 'w', encoding='utf-8') as f:
                 data = {
                     "colonies": self.colonies,
-                    "settings": self.settings
+                    "settings": self.settings,
+                    "custom_species": self.custom_species
                 }
                 json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception as e:
@@ -250,34 +306,74 @@ class AntColonyApp:
 
         self._create_main_header(main_container)
 
-        content_frame = tk.Frame(main_container, bg=self.bg_color)
-        content_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        # Container principale per i contenuti scambiabili
+        self.content_container = tk.Frame(main_container, bg=self.bg_color)
+        self.content_container.pack(fill="both", expand=True, padx=20, pady=20)
 
-        if not self.colonies:
-            empty_frame = tk.Frame(content_frame, bg=self.bg_color)
-            empty_frame.pack(expand=True, fill="both")
-
-            empty_label = tk.Label(empty_frame,
-                                 text="🔍 Nessuna colonia registrata\n\nClicca su 'Nuova Colonia' per iniziare!",
-                                 font=("Segoe UI", 16),
-                                 fg="#95a5a6",
-                                 bg=self.bg_color,
-                                 justify="center")
-            empty_label.pack(expand=True)
-            return
-
-        self.canvas = tk.Canvas(content_frame, bg=DEFAULT_BG_COLOR, highlightthickness=0)
-        self.scrollbar = ttk.Scrollbar(content_frame, orient="vertical", command=self.canvas.yview)
-        
-        # NOTE: Removed scrollable_frame. We now draw directly on canvas.
+        # -- Vista Griglia (Canvas + Scrollbar) --
+        self.grid_container = tk.Frame(self.content_container, bg=DEFAULT_BG_COLOR)
+        self.canvas = tk.Canvas(self.grid_container, bg=DEFAULT_BG_COLOR, highlightthickness=0)
+        self.scrollbar = ttk.Scrollbar(self.grid_container, orient="vertical", command=self.canvas.yview)
         
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
-        
         self.canvas.bind("<MouseWheel>", self._on_mousewheel)
         self.canvas.bind("<Configure>", self.on_canvas_configure)
 
         self.canvas.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="right", fill="y")
+
+        # -- Vista Dashboard --
+        self.dashboard_container = tk.Frame(self.content_container, bg=DEFAULT_BG_COLOR)
+
+        # Inizializza la vista corretta
+        self.update_view()
+
+    def update_view(self):
+        """Switch between Grid and Dashboard views."""
+        # Nascondi tutto
+        self.grid_container.pack_forget()
+        self.dashboard_container.pack_forget()
+        
+        if self.current_view_mode == "grid":
+            if not self.colonies:
+                self._show_empty_state()
+            else:
+                self.grid_container.pack(fill="both", expand=True)
+                self.display_colonies()
+        else:
+            self.dashboard_container.pack(fill="both", expand=True)
+            self.show_dashboard()
+
+    def toggle_view_mode(self, mode):
+        self.current_view_mode = mode
+        self.update_view()
+
+    def _show_empty_state(self):
+        # Mostra stato vuoto (solo se siamo in grid mode e non abbiamo colonie)
+        # Puliamo grid container per mostrare empty frame
+        for widget in self.grid_container.winfo_children():
+            if widget not in (self.canvas, self.scrollbar):
+                widget.destroy()
+
+        if self.colonies:
+            return
+
+        # Nascondi canvas/scroll
+        self.canvas.pack_forget()
+        self.scrollbar.pack_forget()
+        
+        empty_frame = tk.Frame(self.grid_container, bg=self.bg_color)
+        empty_frame.pack(expand=True, fill="both")
+
+        empty_label = tk.Label(empty_frame,
+                             text="🔍 Nessuna colonia registrata\n\nClicca su 'Nuova Colonia' per iniziare!",
+                             font=("Segoe UI", 16),
+                             fg="#95a5a6",
+                             bg=self.bg_color,
+                             justify="center")
+        empty_label.pack(expand=True)
+        
+        self.grid_container.pack(fill="both", expand=True)
         
         # Bind scroll events to keep background fixed
         self.scrollbar.bind("<B1-Motion>", lambda e: self._update_bg_position())
@@ -358,6 +454,15 @@ class AntColonyApp:
                               fg=TEXT_COLOR,
                               bg=CARD_BG_COLOR)
         title_label.pack(side="left")
+        
+        # View Switcher (Centro-Sinistra)
+        view_frame = tk.Frame(header_content, bg=CARD_BG_COLOR)
+        view_frame.pack(side="left", padx=40)
+        
+        ttk.Button(view_frame, text="🔲 Quadri", style="Modern.TButton",
+                  command=lambda: self.toggle_view_mode("grid")).pack(side="left", padx=2)
+        ttk.Button(view_frame, text="📊 Dashboard", style="Modern.TButton",
+                  command=lambda: self.toggle_view_mode("dashboard")).pack(side="left", padx=2)
 
         btn_frame = tk.Frame(header_content, bg=CARD_BG_COLOR)
         btn_frame.pack(side="right")
@@ -477,13 +582,21 @@ class AntColonyApp:
                     self._create_colony_image_card(img_frame, colony)
     
                     name_label = tk.Label(card_content,
-                                        text=colony["name"],
-                                        font=("Segoe UI", 14, "bold"),
-                                        fg=TEXT_COLOR,
-                                        bg=CARD_BG_COLOR,
-                                        wraplength=col_width-40)
-                    name_label.pack(pady=(0, 5))
-    
+                                    text=colony["name"],
+                                    font=("Segoe UI", 14, "bold"),
+                                    fg=TEXT_COLOR,
+                                    bg=CARD_BG_COLOR,
+                                    wraplength=col_width-40)
+                    name_label.pack(pady=(0, 2))
+                
+                    # Specie Label
+                    if colony.get("species"):
+                        tk.Label(card_content,
+                                text=colony["species"],
+                                font=("Segoe UI", 10, "italic"),
+                                fg=ACCENT_COLOR,
+                                bg=CARD_BG_COLOR).pack(pady=(0, 5))
+
                     date_text = f"📅 {colony['collection_date']}"
                     try:
                         collection_date_obj = datetime.strptime(colony['collection_date'], '%Y-%m-%d').date()
@@ -655,13 +768,13 @@ class AntColonyApp:
     def create_colony(self):
         dialog = tk.Toplevel(self.root)
         dialog.title("Nuova Colonia")
-        dialog.geometry("400x550")
+        dialog.geometry("500x700")
         dialog.configure(bg=CARD_BG_COLOR)
         dialog.transient(self.root)
         dialog.grab_set()
         dialog.focus_set()
 
-        dialog.geometry(f"+{self.root.winfo_rootx()+200}+{self.root.winfo_rooty()+150}")
+        dialog.geometry(f"+{self.root.winfo_rootx()+150}+{self.root.winfo_rooty()+50}")
 
         content = tk.Frame(dialog, bg=CARD_BG_COLOR)
         content.pack(fill="both", expand=True, padx=30, pady=30)
@@ -678,18 +791,76 @@ class AntColonyApp:
         name_entry = tk.Entry(content, textvariable=name_var,
                              font=("Segoe UI", 12),
                              width=30)
-        name_entry.pack(fill="x", pady=(0, 15))
+        name_entry.pack(fill="x", pady=(0, 5))
         name_entry.focus()
+        
+        # --- Sezione Specie ---
+        tk.Label(content, text="Specie (Database):", font=("Segoe UI", 10), fg="#bdc3c7", bg=CARD_BG_COLOR).pack(anchor="w", pady=(10, 0))
+        
+        species_frame = tk.Frame(content, bg=CARD_BG_COLOR)
+        species_frame.pack(fill="x", pady=(0, 5))
+        
+        species_var = tk.StringVar()
+        # Ordina: prima le custom, poi le default
+        all_species = sorted(list(self.species_db.keys()))
+        species_combo = ttk.Combobox(species_frame, textvariable=species_var, values=all_species)
+        species_combo.pack(side="left", fill="x", expand=True)
+        
+        def save_new_species():
+            name = species_var.get().strip()
+            notes = info_text.get("1.0", tk.END).strip()
+            desc = description_text.get("1.0", tk.END).strip()
+            
+            if not name:
+                messagebox.showerror("Errore", "Inserisci il nome della specie.")
+                return
+            if name in self.species_db and name not in self.custom_species:
+                messagebox.showerror("Errore", "Non puoi sovrascrivere le specie predefinite.")
+                return
+            
+            # Salva
+            self.custom_species[name] = {"description": desc, "notes": notes}
+            self.species_db[name] = self.custom_species[name]
+            self.save_data()
+            
+            # Aggiorna combo
+            species_combo['values'] = sorted(list(self.species_db.keys()))
+            messagebox.showinfo("Successo", f"Specie '{name}' salvata nel database!")
 
-        tk.Label(content, text="Descrizione (opzionale):",
+        ttk.Button(species_frame, text="💾 Salva Specie", command=save_new_species, style="Modern.TButton").pack(side="left", padx=(5, 0))
+        
+        # Info Box Modificabile
+        tk.Label(content, text="Info Cura / Note (Modificabile):", font=("Segoe UI", 10, "bold"), fg="#bdc3c7", bg=CARD_BG_COLOR).pack(anchor="w")
+        info_text = scrolledtext.ScrolledText(content, wrap="word", width=30, height=4,
+                                            font=("Segoe UI", 9), bg=DEFAULT_BG_COLOR, fg=TEXT_COLOR,
+                                            insertbackground=TEXT_COLOR, relief="sunken", bd=2)
+        info_text.pack(fill="x", pady=(0, 10))
+
+        # Descrizione
+        tk.Label(content, text="Descrizione Colonia:",
                 font=("Segoe UI", 12),
                 fg=TEXT_COLOR, bg=CARD_BG_COLOR).pack(anchor="w", pady=(0, 5))
 
-        description_text = scrolledtext.ScrolledText(content, wrap="word", width=30, height=5,
+        description_text = scrolledtext.ScrolledText(content, wrap="word", width=30, height=4,
                                                     font=("Segoe UI", 10),
                                                     bg=DEFAULT_BG_COLOR, fg=TEXT_COLOR,
                                                     insertbackground=TEXT_COLOR)
         description_text.pack(fill="x", pady=(0, 15))
+
+
+        def on_species_select(event):
+            species = species_combo.get()
+            if species in self.species_db:
+                data = self.species_db[species]
+                
+                description_text.delete("1.0", tk.END)
+                description_text.insert("1.0", data["description"])
+                
+                info_text.delete("1.0", tk.END)
+                info_text.insert("1.0", data["notes"])
+
+        species_combo.bind("<<ComboboxSelected>>", on_species_select)
+        
 
         tk.Label(content, text="Data di raccolta:",
                 font=("Segoe UI", 12),
@@ -739,9 +910,10 @@ class AntColonyApp:
 
             new_colony = {
                 "name": name,
+                "species": species_var.get(), # Save species
                 "collection_date": date_entry.get(),
                 "description": description,
-                "notes": "",
+                "notes": info_text.get("1.0", tk.END).strip(), # Save updated info as notes
                 "images": [],
                 "profile_image": "",
                 "feeding_schedule": [],
@@ -840,13 +1012,13 @@ class AntColonyApp:
     def edit_colony(self):
         dialog = tk.Toplevel(self.root)
         dialog.title("Modifica Colonia")
-        dialog.geometry("400x450")
+        dialog.geometry("500x700")
         dialog.configure(bg=CARD_BG_COLOR)
         dialog.transient(self.root)
         dialog.grab_set()
         dialog.focus_set()
 
-        dialog.geometry(f"+{self.root.winfo_rootx()+200}+{self.root.winfo_rooty()+150}")
+        dialog.geometry(f"+{self.root.winfo_rootx()+150}+{self.root.winfo_rooty()+50}")
 
         content = tk.Frame(dialog, bg=CARD_BG_COLOR)
         content.pack(fill="both", expand=True, padx=30, pady=30)
@@ -863,19 +1035,77 @@ class AntColonyApp:
         name_entry = tk.Entry(content, textvariable=name_var,
                              font=("Segoe UI", 12),
                              width=30)
-        name_entry.pack(fill="x", pady=(0, 15))
+        name_entry.pack(fill="x", pady=(0, 5))
         name_entry.focus()
+        
+        # --- Sezione Specie ---
+        tk.Label(content, text="Specie (Database):", font=("Segoe UI", 10), fg="#bdc3c7", bg=CARD_BG_COLOR).pack(anchor="w", pady=(10, 0))
+        
+        species_frame = tk.Frame(content, bg=CARD_BG_COLOR)
+        species_frame.pack(fill="x", pady=(0, 5))
+        
+        species_var = tk.StringVar(value=self.current_colony.get("species", ""))
+        all_species = sorted(list(self.species_db.keys()))
+        species_combo = ttk.Combobox(species_frame, textvariable=species_var, values=all_species)
+        species_combo.pack(side="left", fill="x", expand=True)
+        
+        def save_new_species():
+            name = species_var.get().strip()
+            notes = info_text.get("1.0", tk.END).strip()
+            desc = description_text.get("1.0", tk.END).strip()
+            
+            if not name:
+                messagebox.showerror("Errore", "Inserisci il nome della specie.")
+                return
+            if name in self.species_db and name not in self.custom_species:
+                messagebox.showerror("Errore", "Non puoi sovrascrivere le specie predefinite.")
+                return
+            
+            # Salva
+            self.custom_species[name] = {"description": desc, "notes": notes}
+            self.species_db[name] = self.custom_species[name]
+            self.save_data()
+            
+            # Aggiorna combo
+            species_combo['values'] = sorted(list(self.species_db.keys()))
+            messagebox.showinfo("Successo", f"Specie '{name}' salvata nel database!")
+
+        ttk.Button(species_frame, text="💾 Salva Specie", command=save_new_species, style="Modern.TButton").pack(side="left", padx=(5, 0))
+        
+        # Info Box Modificabile
+        tk.Label(content, text="Info Cura / Note (Modificabile):", font=("Segoe UI", 10, "bold"), fg="#bdc3c7", bg=CARD_BG_COLOR).pack(anchor="w")
+        info_text = scrolledtext.ScrolledText(content, wrap="word", width=30, height=4,
+                                            font=("Segoe UI", 9), bg=DEFAULT_BG_COLOR, fg=TEXT_COLOR,
+                                            insertbackground=TEXT_COLOR, relief="sunken", bd=2)
+        info_text.insert("1.0", self.current_colony.get("notes", ""))
+        info_text.pack(fill="x", pady=(0, 10))
+
 
         tk.Label(content, text="Descrizione:",
                 font=("Segoe UI", 12),
                 fg=TEXT_COLOR, bg=CARD_BG_COLOR).pack(anchor="w", pady=(0, 5))
 
-        description_text = scrolledtext.ScrolledText(content, wrap="word", width=30, height=5,
+        description_text = scrolledtext.ScrolledText(content, wrap="word", width=30, height=4,
                                                     font=("Segoe UI", 10),
                                                     bg=DEFAULT_BG_COLOR, fg=TEXT_COLOR,
                                                     insertbackground=TEXT_COLOR)
         description_text.insert(tk.END, self.current_colony.get("description", ""))
         description_text.pack(fill="x", pady=(0, 15))
+
+
+        def on_species_select(event):
+            species = species_combo.get()
+            if species in self.species_db:
+                data = self.species_db[species]
+                
+                description_text.delete("1.0", tk.END)
+                description_text.insert("1.0", data["description"])
+                
+                info_text.delete("1.0", tk.END)
+                info_text.insert("1.0", data["notes"])
+
+        species_combo.bind("<<ComboboxSelected>>", on_species_select)
+
 
         tk.Label(content, text="Data di raccolta:",
                 font=("Segoe UI", 12),
@@ -894,10 +1124,14 @@ class AntColonyApp:
             if not name:
                 messagebox.showerror("Errore", "Il nome della colonia è obbligatorio!")
                 return
-
+            
+            # Update data
             self.current_colony["name"] = name
             self.current_colony["description"] = description
             self.current_colony["collection_date"] = date_entry.get()
+            self.current_colony["species"] = species_var.get()
+            self.current_colony["notes"] = info_text.get("1.0", tk.END).strip()
+            
             self.save_data()
             dialog.destroy()
             self.update_colony_view()
@@ -1010,6 +1244,11 @@ class AntColonyApp:
         tk.Label(content, text=f"📅 Data raccolta: {self.current_colony['collection_date']}",
                 font=("Segoe UI", 11),
                 fg="#bdc3c7", bg=CARD_BG_COLOR).pack(anchor="w", pady=5)
+        
+        if self.current_colony.get("species"):
+             tk.Label(content, text=f"🐜 Specie: {self.current_colony['species']}",
+                font=("Segoe UI", 11),
+                fg=ACCENT_COLOR, bg=CARD_BG_COLOR).pack(anchor="w", pady=5)
         
         # Display dei dati storici più recenti
         last_history = self.current_colony['history'][-1] if self.current_colony['history'] else None
@@ -1631,6 +1870,108 @@ class AntColonyApp:
                   command=self.save_notes).pack(pady=5, padx=20, anchor="e")
 
         return notes_tab
+
+
+    def show_dashboard(self):
+        # Pulisci
+        for widget in self.dashboard_container.winfo_children():
+            widget.destroy()
+
+        if not self.colonies:
+            tk.Label(self.dashboard_container, text="Nessun dato da mostrare.", bg=DEFAULT_BG_COLOR, fg=TEXT_COLOR).pack(pady=50)
+            return
+
+        # 1. Statistiche Aggregre
+        stats_frame = tk.Frame(self.dashboard_container, bg=DEFAULT_BG_COLOR)
+        stats_frame.pack(fill="x", pady=20)
+        
+        total_colonies = len(self.colonies)
+        total_ants = sum(c['history'][-1]['population'] for c in self.colonies if c.get('history'))
+        
+        # Trova top colonia
+        top_colony = max(self.colonies, key=lambda c: c['history'][-1]['population'] if c.get('history') else 0)
+        top_colyna_name = top_colony['name']
+        top_colony_pop = top_colony['history'][-1]['population'] if top_colony.get('history') else 0
+        
+        def create_stat_card(parent, title, value, icon):
+            card = tk.Frame(parent, bg=CARD_BG_COLOR, padx=20, pady=15)
+            card.pack(side="left", fill="both", expand=True, padx=10)
+            
+            tk.Label(card, text=icon, font=("Segoe UI", 24), bg=CARD_BG_COLOR, fg=ACCENT_COLOR).pack()
+            tk.Label(card, text=value, font=("Segoe UI", 20, "bold"), bg=CARD_BG_COLOR, fg=TEXT_COLOR).pack()
+            tk.Label(card, text=title, font=("Segoe UI", 10), bg=CARD_BG_COLOR, fg="#bdc3c7").pack()
+
+        create_stat_card(stats_frame, "Colonie Totali", str(total_colonies), "🏠")
+        create_stat_card(stats_frame, "Formiche Totali", str(total_ants), "🐜")
+        create_stat_card(stats_frame, "Colonia più grande", f"{top_colyna_name}\n({top_colony_pop})", "👑")
+
+        # 2. Prossime Nutrizioni (Tutte)
+        feed_frame = tk.Frame(self.dashboard_container, bg=CARD_BG_COLOR)
+        feed_frame.pack(fill="both", expand=True, pady=10)
+        
+        tk.Label(feed_frame, text="📅 Prossime Attività (Tutte le colonie)", font=("Segoe UI", 14, "bold"), bg=CARD_BG_COLOR, fg=TEXT_COLOR).pack(anchor="w", padx=20, pady=15)
+        
+        # Raccogli tutti gli eventi
+        all_events = []
+        for colony in self.colonies:
+            # Singoli
+            for s in colony.get('feeding_schedule', []):
+                try:
+                    dt = datetime.fromisoformat(s['datetime'])
+                    if dt > datetime.now():
+                        all_events.append({
+                            'dt': dt,
+                            'colony': colony['name'],
+                            'type': 'Singolo',
+                            'desc': s.get('description', ''),
+                            'food': s.get('food_type', 'Cibo')
+                        })
+                except: pass
+            
+            # Ricorrenti (prossima occorrenza)
+            for r in colony.get('recurring_schedule', []):
+                try:
+                    start = datetime.fromisoformat(r['start_date']).date()
+                    interval = r.get('interval', 7)
+                    today = datetime.now().date()
+                    
+                    # Calcola prossima data
+                    days_passed = (today - start).days
+                    if days_passed < 0:
+                        next_date = start
+                    else:
+                        cycles = days_passed // interval
+                        next_date = start + timedelta(days=(cycles + 1) * interval)
+                    
+                    next_dt = datetime.combine(next_date, datetime.min.time())
+                    
+                    all_events.append({
+                        'dt': next_dt,
+                        'colony': colony['name'],
+                        'type': 'Ricorrente',
+                        'desc': f"Ogni {interval} giorni",
+                        'food': r.get('food_type', 'Cibo')
+                    })
+                except: pass
+        
+        # Sort e prendi primi 10
+        all_events.sort(key=lambda x: x['dt'])
+        upcoming = all_events[:8]
+        
+        if not upcoming:
+             tk.Label(feed_frame, text="Nessuna attività programmata.", bg=CARD_BG_COLOR, fg="#95a5a6").pack(pady=20)
+        else:
+            list_frame = tk.Frame(feed_frame, bg=CARD_BG_COLOR)
+            list_frame.pack(fill="both", expand=True, padx=20)
+            
+            for ev in upcoming:
+                 row = tk.Frame(list_frame, bg=DEFAULT_BG_COLOR, pady=5)
+                 row.pack(fill="x", pady=2)
+                 
+                 date_str = ev['dt'].strftime("%d/%m")
+                 tk.Label(row, text=f"[{date_str}]", font=("Segoe UI", 10, "bold"), fg=ACCENT_COLOR, bg=DEFAULT_BG_COLOR, width=8).pack(side="left", padx=5)
+                 tk.Label(row, text=f"{ev['colony']}", font=("Segoe UI", 10, "bold"), fg=TEXT_COLOR, bg=DEFAULT_BG_COLOR, width=20, anchor="w").pack(side="left")
+                 tk.Label(row, text=f"{ev['food']} ({ev['type']})", font=("Segoe UI", 10), fg="#bdc3c7", bg=DEFAULT_BG_COLOR).pack(side="left", padx=10)
 
     def show_settings(self):
         dialog = tk.Toplevel(self.root)
